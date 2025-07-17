@@ -196,7 +196,11 @@ SELECT
     NOW() - (INTERVAL '365 days' * RANDOM()) AS created_at
 FROM generate_series(1, 30) AS gs;
 
+ALTER TABLE drivers ADD COLUMN priority_level VARCHAR(20);
 
+UPDATE drivers
+SET priority_level = (ARRAY['high', 'medium', 'low'])[FLOOR(RANDOM() * 3) + 1]
+WHERE driver_id BETWEEN 661 AND 690;
 
 SELECT * FROM drivers;
 
@@ -608,6 +612,36 @@ $$ LANGUAGE plpgsql;
 
 SELECT assign_optimal_route(1205, 'express');
 
+--------
+SELECT * FROM drivers WHERE priority_level = 'high';
+----
+SELECT d.driver_id, d.driver_name, v.capacity,priority_level
+FROM drivers d
+JOIN vehicles v ON v.vehicle_id = d.vehicle_id
+WHERE d.priority_level = 'high'
+  AND v.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1 FROM shipments s
+    WHERE s.driver_id = d.driver_id
+      AND s.status IN ('pending', 'in_transit')
+  );
+
+SELECT driver_id, driver_name, priority_level FROM drivers LIMIT 10;
+
+SELECT v.vehicle_id, v.status FROM vehicles v WHERE v.status = 'active';
+---
+SELECT DISTINCT s.driver_id
+FROM shipments s
+WHERE s.status IN ('pending', 'in_transit');
+
+----
+SELECT d.driver_id, d.driver_name
+FROM drivers d
+WHERE NOT EXISTS (
+    SELECT 1 FROM shipments s
+    WHERE s.driver_id = d.driver_id
+      AND s.status IN ('pending', 'in_transit')
+);
 
 -----
 SELECT d.driver_id, d.driver_name, d.driver_phone, v.vehicle_id, v.capacity
