@@ -1,5 +1,5 @@
 CREATE TYPE status_enum AS ENUM ('pending','in_transit','delivered','cancelled');
-DROP TYPE status_enum;
+
 -- მომხმარებლები (კომპანიები და ინდივიდუალები)
 
 CREATE TABLE customers (
@@ -135,8 +135,9 @@ CREATE TABLE vehicles (
 
 
 -- 30 მანქანის რეალური ჩანაწერის ჩასმა
-INSERT INTO vehicles (vehicle_type, capacity, status, created_at)
+INSERT INTO vehicles (vehicle_id, vehicle_type, capacity, status, created_at)
 SELECT
+    2000 + gs,
     (ARRAY[
         'Truck', 'Van', 'Mini Van', 'Cargo Bike', 'Box Truck',
         'Pickup', 'Refrigerated Truck', 'Scooter', 'Panel Van', 'Flatbed',
@@ -144,16 +145,18 @@ SELECT
         'Forklift', 'Hybrid Van', 'Electric Cargo Bike', 'Compact Truck', 'Delivery Robot',
         'CNG Van', 'Double Trailer', 'Dump Truck', 'Tanker', 'Lowboy',
         'Step Deck', 'Concrete Mixer', 'Livestock Trailer', 'Gravel Truck', 'Dry Van'
-    ])[gs] AS vehicle_type,
-    (RANDOM() * 1000 + 500)::INT AS capacity, -- ტევადობა: 500–1500 კგ
-    (ARRAY['active', 'maintenance', 'unavailable'])[FLOOR(RANDOM()*3)+1] AS status,
-    NOW() - (INTERVAL '365 days' * RANDOM()) AS created_at
+    ])[gs],
+    (RANDOM() * 1000 + 500)::INT,
+    (ARRAY['active', 'maintenance', 'unavailable'])[FLOOR(RANDOM()*3)+1],
+    NOW() - (INTERVAL '365 days' * RANDOM())
 FROM generate_series(1, 30) AS gs;
+
 
 
 SELECT * FROM vehicles;
 
 SELECT COUNT (vehicle_id) FROM vehicles;
+
 DELETE FROM vehicles;
 
 -- მძღოლები/ოპერატორები
@@ -166,8 +169,9 @@ CREATE TABLE drivers (
 );
 
 -- 30 მძღოლის ჩასმა 
-INSERT INTO drivers (driver_name, driver_phone, vehicle_id, created_at)
+INSERT INTO drivers (driver_id, driver_name, driver_phone, vehicle_id, created_at)
 SELECT
+    660 + gs,  -- driver_id = 661–690
     (ARRAY[
         'Giorgi', 'Nika', 'Irakli', 'Lasha', 'Tornike',
         'Ana', 'Nino', 'Mariam', 'Tatia', 'Saba',
@@ -184,11 +188,14 @@ SELECT
         'Tabidze', 'Makharadze', 'Bregvadze', 'Kavlashvili', 'Oniani',
         'Gvazava', 'Lortkipanidze', 'Janelidze', 'Ghudushauri', 'Sharashenidze'
     ])[gs] AS driver_name,
-    
+
     '+9955' || LPAD((TRUNC(RANDOM()*1000000))::TEXT, 6, '0') AS driver_phone,
-    gs + 40 AS vehicle_id,  -- ანუ 41-დან 70-მდე
+
+    2000 + gs AS vehicle_id,  -- vehicle_id = 2001–2030
+
     NOW() - (INTERVAL '365 days' * RANDOM()) AS created_at
 FROM generate_series(1, 30) AS gs;
+
 
 
 SELECT * FROM drivers;
@@ -196,8 +203,9 @@ SELECT * FROM drivers;
 SELECT COUNT(driver_id) FROM drivers;
 
 SELECT  MAX(driver_id) FROM drivers;
-
+DELETE FROM drivers;
 -- გზავნილები/შეკვეთები
+
 CREATE TABLE shipments (
     shipment_id SERIAL PRIMARY KEY,
     customer_id INT REFERENCES customers(customer_id),
@@ -209,7 +217,6 @@ CREATE TABLE shipments (
     status status_enum,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
 INSERT INTO shipments (
     customer_id,
     product_id,
@@ -217,28 +224,53 @@ INSERT INTO shipments (
     origin_warehouse_id,
     destination_address_id,
     driver_id,
-    status,
-    created_at
+    status
 )
 SELECT
-    (SELECT customer_id FROM customers ORDER BY RANDOM() LIMIT 1),
-    (SELECT product_id FROM products ORDER BY RANDOM() LIMIT 1),
-    (RANDOM() * 10 + 1)::INT,                        -- shipment_quantity
-    (SELECT warehouse_address_id FROM warehouses ORDER BY RANDOM() LIMIT 1),
-    (SELECT address_id FROM addresses ORDER BY RANDOM() LIMIT 1),
-    (SELECT driver_id FROM drivers ORDER BY RANDOM() LIMIT 1),
-    (ARRAY['pending','in_transit','delivered','cancelled'])[FLOOR(RANDOM()*4)+1]::status_enum,
-    NOW() - (INTERVAL '30 days' * RANDOM())
+    (trunc(random() * 200) + 501)::INT AS customer_id,            -- 501–700
+    (trunc(random() * 510) + 3001)::INT AS product_id,            -- 3001–3510
+    (trunc(random() * 20) + 1)::INT AS shipment_quantity,         -- 1–20
+    (trunc(random() * 60) + 101)::INT AS origin_warehouse_id,     -- 101–160
+    (trunc(random() * 400) + 1)::INT AS destination_address_id,   -- 1–400
+    (trunc(random() * 30) + 661)::INT AS driver_id,               -- 661–690
+    (ARRAY['pending', 'in_transit', 'delivered', 'cancelled'])[floor(random() * 4 + 1)]::status_enum
 FROM generate_series(1, 600);
 
+
+DELETE FROM shipments;
 -- რამდენი მომხმარებელია
 SELECT COUNT(*), MIN(customer_id), MAX(customer_id) FROM customers;
 
 -- რამდენი პროდუქტი
 SELECT COUNT(*), MIN(product_id), MAX(product_id) FROM products;
 
+SELECT COUNT(shipment_id) FROM shipments;
 
+SELECT  MAX(shipment_id) FROM shipments;
 SELECT * FROM shipments;
+
+drop table shipments;
+select status from shipments
+group by status;
+--გზავნილები/შეკვეთები 
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customers(customer_id),
+    order_date DATE DEFAULT CURRENT_DATE,
+    delivery_date DATE,  -- მიტანის თარიღი (არ უნდა იყოს წარსულში)
+    status status_enum DEFAULT 'pending',
+    total_amount DECIMAL(10,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO orders (customer_id, order_date, delivery_date, status, total_amount)
+SELECT
+    (TRUNC(RANDOM() * 200) + 501)::INT AS customer_id,
+    CURRENT_DATE - (TRUNC(RANDOM() * 30))::INT AS order_date,  -- ბოლო 30 დღეში შეკვეთა
+    CURRENT_DATE + (TRUNC(RANDOM() * 10) + 1)::INT AS delivery_date, -- 1–10 დღით გვიან
+    (ARRAY['pending', 'in_transit', 'delivered', 'cancelled'])[FLOOR(RANDOM()*4)+1]::status_enum,
+    ROUND((RANDOM() * 900 + 100)::NUMERIC, 2)  -- 100–1000 დოლარი
+FROM generate_series(1, 200);
 
 
 -- მარშრუტები
@@ -250,8 +282,24 @@ CREATE TABLE routes (
     distance_km DECIMAL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+INSERT INTO routes (origin_address_id, destination_address_id, estimated_time, distance_km)
+SELECT
+    origin_id,
+    destination_id,
+    (trunc(random() * 10 + 1) || ' hours')::interval,
+    ROUND((random() * 900 + 100)::numeric, 2)  -- 100 – 1000 კმ, ორი ათწილადი
+FROM (
+    SELECT DISTINCT
+        (trunc(random() * 50 + 1))::int AS origin_id,
+        (trunc(random() * 50 + 1))::int AS destination_id
+    FROM generate_series(1, 1000)
+) AS random_routes
+WHERE origin_id <> destination_id
+LIMIT 400;
 
 
+
+select * from routes;
 -- მისამართები/ლოკაციები
 CREATE TABLE addresses (
     address_id SERIAL PRIMARY KEY,
@@ -337,6 +385,7 @@ CREATE TABLE vehicle_maintenance (
     maintenance_date DATE,
     cost DECIMAL(10,2)
 );
+drop table vehicle_maintenance;
 ● ღირებულების გაანგარიშება (საწვავი, შრომა, შენახვა)
 
 
@@ -344,6 +393,7 @@ CREATE TABLE vehicle_maintenance (
 2. რთული შეზღუდვები 
 
 ○ უზრუნველყოს გზავნილის წონა არ აღემატებოდეს ტრანსპორტის ტევადობას 
+drop FUNCTION check_vehicle_capacity;
 
 CREATE OR REPLACE FUNCTION check_vehicle_capacity()
 RETURNS TRIGGER AS $$
@@ -395,3 +445,192 @@ FOR EACH ROW EXECUTE FUNCTION validate_delivery_date();
 ○ ბიზნეს წესების განხორციელება (მძღოლები არ შეიძლება ერთდროულად 
 რამდენიმე მარშრუტზე იყვნენ დანიშნულნი) 
 DROP TRIGGER  trg_validate_delivery_date;
+
+
+შედეგი 4: ბიზნეს ლოგიკის განხორციელება 
+შექმენით შემდეგი stored procedure/ფუნქციები: 
+
+1. calculate_shipping_cost() 
+○ შეყვანა: წარმოშობა, დანიშნულება, წონა, მომსახურების_ტიპი 
+○ გამოყვანა: გამოანგარიშებული ღირებულება დისტანციის, წონისა და 
+მომსახურების დონის მიხედვით 
+○ მოიცავს საწვავის დანამატებსა და სეზონურ კორექტირებებს 
+drop FUNCTION calculate_shipping_cost;
+
+CREATE OR REPLACE FUNCTION calculate_shipping_cost(
+    origin_id INT,
+    destination_id INT,
+    weight DECIMAL(10,2),
+    service_type VARCHAR
+)
+RETURNS DECIMAL(10,2)
+AS $$
+DECLARE
+    base_cost DECIMAL(10,2);
+    distance_km DECIMAL(10,2);
+    fuel_surcharge_rate DECIMAL := 0.05;  -- 5% საწვავის დანამატი
+    seasonal_adjustment_rate DECIMAL := 0.10;  -- 10% სეზონური კორექტირება
+    service_multiplier DECIMAL := 1.0;
+BEGIN
+    --  
+    SELECT r.distance_km INTO distance_km
+    FROM routes r
+    WHERE r.origin_address_id = origin_id AND r.destination_address_id = destination_id;
+
+    IF distance_km IS NULL THEN
+        RAISE EXCEPTION 'Route not found between % and %', origin_id, destination_id;
+    END IF;
+
+    -- 
+    CASE LOWER(service_type)
+        WHEN 'standard' THEN service_multiplier := 1.0;
+        WHEN 'express' THEN service_multiplier := 1.5;
+        WHEN 'overnight' THEN service_multiplier := 2.0;
+        ELSE
+            RAISE EXCEPTION 'Invalid service type: %', service_type;
+    END CASE;
+
+    -- საბაზისო ღირებულება
+    base_cost := (distance_km * 0.50) + (weight * 0.20);
+
+    -- დანამატები
+    base_cost := base_cost * (1 + fuel_surcharge_rate);
+    base_cost := base_cost * (1 + seasonal_adjustment_rate);
+
+    -- 
+    base_cost := base_cost * service_multiplier;
+
+    RETURN ROUND(base_cost, 2);
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+SELECT calculate_shipping_cost(2, 37, 10.5, 'express');
+SELECT calculate_shipping_cost(2, 37, 12, 'standard');
+
+SELECT calculate_shipping_cost(44, 19, 15, 'express');
+
+select * from vehicle_maintenance;
+-----------
+
+2. assign_optimal_route() 
+
+○ შეყვანა: გზავნილის_იდ, პრიორიტეტის_დონე 
+○ ლოგიკა: იპოვეთ საუკეთესო ტრანსპორტი და მარშრუტი ტევადობის, მძღოლის 
+ხელმისაწვდომობისა და მიწოდების დედლაინების გათვალისწინებით 
+
+drop FUNCTION assign_optimal_route;
+
+CREATE OR REPLACE FUNCTION assign_optimal_route(
+    p_shipment_id INT,
+    p_priority_level VARCHAR
+)
+RETURNS TEXT
+AS $$
+DECLARE
+    product_id INT;
+    quantity INT;
+    weight_per_unit DECIMAL(10,2);
+    origin_id INT;
+    destination_id INT;
+    total_weight DECIMAL(10,2);
+    selected_driver_id INT;
+    selected_vehicle_id INT;
+    route_found BOOLEAN;
+BEGIN
+    -- shipment-ის დეტალები
+    SELECT 
+        s.product_id,
+        s.shipment_quantity,
+        s.origin_warehouse_id,
+        s.destination_address_id,
+        p.weight_per_unit
+    INTO 
+        product_id,
+        quantity,
+        origin_id,
+        destination_id,
+        weight_per_unit
+    FROM shipments s
+    JOIN products p ON s.product_id = p.product_id
+    WHERE s.shipment_id = p_shipment_id;
+
+    -- თუ ვერ მოიძებნა shipment
+    IF NOT FOUND THEN
+        RETURN 'Shipment not found';
+    END IF;
+
+    -- ჯამური წონა
+    total_weight := quantity * weight_per_unit;
+
+    -- მძღოლი და მანქანა
+    SELECT d.driver_id, v.vehicle_id
+    INTO selected_driver_id, selected_vehicle_id
+    FROM drivers d
+    JOIN vehicles v ON v.vehicle_id = d.vehicle_id
+    WHERE v.capacity >= total_weight
+      AND v.status = 'active'
+      AND NOT EXISTS (
+          SELECT 1 FROM shipments s2
+          WHERE s2.driver_id = d.driver_id
+            AND s2.status IN ('pending', 'in_transit')
+      )
+    LIMIT 1;
+
+    IF selected_driver_id IS NULL THEN
+        RETURN 'No available driver/vehicle';
+    END IF;
+
+    -- მარშრუტის არსებობის შემოწმება
+    SELECT EXISTS (
+        SELECT 1 FROM routes
+        WHERE origin_address_id = origin_id
+          AND destination_address_id = destination_id
+    ) INTO route_found;
+
+    IF NOT route_found THEN
+        RETURN 'No matching route found';
+    END IF;
+
+    -- განახლება
+    UPDATE shipments
+    SET driver_id = selected_driver_id,
+        status = 'in_transit'
+    WHERE shipment_id = p_shipment_id;
+
+    RETURN format(
+        'Shipment %s assigned to driver %s and vehicle %s',
+        p_shipment_id, selected_driver_id, selected_vehicle_id
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT assign_optimal_route(1205, 'express');
+
+
+-----
+SELECT d.driver_id, d.driver_name, d.driver_phone, v.vehicle_id, v.capacity
+FROM drivers d
+JOIN vehicles v ON d.vehicle_id = v.vehicle_id
+AND v.status = 'active';
+---
+select * from drivers;
+SELECT * FROM shipments;
+SELECT * FROM vehicles;
+
+SELECT assign_optimal_route(663, 'delivered');
+
+SELECT assign_optimal_route(1206, 'pending');
+
+
+
+
+3. update_shipment_status() 
+○ შეყვანა: ტრეკინგ_ნომერი, ახალი_სტატუსი, ლოკაცია 
+○ მოიცავს ავტომატურ დროის ბეჭდვას და მომხმარებლის შეტყობინებებს 
+4. generate_delivery_manifest() 
+○ შეყვანა: მარშრუტის_იდ, თარიღი 
+○ გამოყვანა: სრული მიწოდების სია ოპტიმიზირებული გაჩერებების 
+თანმიმდევრობით
+
