@@ -167,7 +167,7 @@ CREATE TABLE routes (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert 400 routes with IDs 3001–3400 using distinct addresses
+-- Insert 400 routes with IDs
 INSERT INTO routes (route_id, origin_address_id, destination_address_id, estimated_time, distance_km, created_at)
 SELECT 
     4000 + gs AS route_id,

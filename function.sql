@@ -49,33 +49,12 @@ SELECT calculate_shipping_cost(1001, 1201, 10.5, 'standard')
 
 SELECT calculate_shipping_cost(1001, 1201, 9.5, 'express')
 
+SELECT calculate_shipping_cost(1004, 1204, 15.0, 'overnight')
+
 SELECT * FROM routes WHERE origin_address_id = 1001 AND destination_address_id = 1201;
 
 select * from routes;
 
--- update_shipment_status() 
-
-○ შეყვანა: ტრეკინგ_ნომერი, ახალი_სტატუსი, ლოკაცია 
-○ მოიცავს ავტომატურ დროის ბეჭდვას და მომხმარებლის შეტყობინებებს 
-
-CREATE OR REPLACE FUNCTION update_shipment_status(
-    p_shipment_id INT,
-    p_new_status status_enum,
-    p_location INT
-)
-RETURNS TEXT AS $$
-BEGIN
-    UPDATE shipments
-    SET shipment_status = p_new_status,
-        actual_delivery_date = CASE
-            WHEN p_new_status = 'delivered' THEN CURRENT_DATE
-            ELSE actual_delivery_date
-        END
-    WHERE shipment_id = p_shipment_id;
-
-    RETURN 'Status updated for shipment ' || p_shipment_id || ' to ' || p_new_status || ' at location ' || p_location;
-END;
-$$ LANGUAGE plpgsql;
 
 -- generate_delivery_manifest() 
 ○ შეყვანა: მარშრუტის_იდ, თარიღი 
@@ -83,10 +62,11 @@ $$ LANGUAGE plpgsql;
 თანმიმდევრობით
 CREATE OR REPLACE FUNCTION generate_delivery_manifest(
     p_route_id INT,
-    p_date DATE
+    p_expected_delivery_date DATE DEFAULT NULL
 )
 RETURNS TABLE (
     shipment_id INT,
+    origin_warehouse_id INT,
     destination_address_id INT,
     driver_id INT,
     expected_delivery_date DATE
@@ -95,17 +75,73 @@ BEGIN
     RETURN QUERY
     SELECT
         s.shipment_id,
+        s.origin_warehouse_id,
         s.destination_address_id,
         s.driver_id,
         s.expected_delivery_date
     FROM shipments s
-    JOIN routes r ON s.origin_warehouse_id = r.origin_address_id
-        AND s.destination_address_id = r.destination_address_id
-    WHERE r.route_id = p_route_id
-      AND s.expected_delivery_date = p_date
+    JOIN routes r ON r.route_id = p_route_id
+        AND r.origin_address_id = s.origin_warehouse_id
+        AND r.destination_address_id = s.destination_address_id
+    WHERE (p_expected_delivery_date IS NULL OR s.expected_delivery_date = p_expected_delivery_date)
     ORDER BY s.expected_delivery_date;
 END;
 $$ LANGUAGE plpgsql;
+
+drop  FUNCTION generate_delivery_manifest
+
+select * from routes;
+
+select * from shipments;
+
+---- ყველა მიწოდება კონკრეტულ მარშრუტზე
+SELECT * FROM generate_delivery_manifest(5011);
+--
+
+SELECT * FROM generate_delivery_manifest(5207, '2025-07-24');
+--
+SELECT origin_address_id, destination_address_id 
+FROM routes 
+WHERE route_id = 5207;
+--
+SELECT * FROM routes
+WHERE origin_address_id = 1042 AND destination_address_id = 1202;
+--
+SELECT shipment_id, origin_warehouse_id, destination_address_id, expected_delivery_date
+FROM shipments
+WHERE origin_warehouse_id = 1042
+  AND destination_address_id = 1202;
+
+--
+SELECT shipment_id, origin_warehouse_id, destination_address_id
+FROM shipments
+WHERE destination_address_id = 1202;
+--
+
+SELECT r.route_id, s.shipment_id, s.expected_delivery_date
+FROM shipments s
+JOIN routes r 
+  ON s.origin_warehouse_id = r.origin_address_id 
+ AND s.destination_address_id = r.destination_address_id
+LIMIT 10;
+---
+SELECT *
+FROM shipments s
+JOIN routes r ON r.origin_address_id = s.origin_warehouse_id
+             AND r.destination_address_id = s.destination_address_id
+JOIN LATERAL generate_delivery_manifest(r.route_id, s.expected_delivery_date) AS manifest
+    ON TRUE
+WHERE s.shipment_id = 5001;
+---
+SELECT DISTINCT r.route_id, s.expected_delivery_date
+FROM shipments s
+JOIN routes r
+  ON s.origin_warehouse_id = r.origin_address_id
+ AND s.destination_address_id = r.destination_address_id
+WHERE s.expected_delivery_date IS NOT NULL
+ORDER BY s.expected_delivery_date
+LIMIT 20;
+
 
 -- assign_optimal_route() 
 ○ შეყვანა: გზავნილის_იდ, პრიორიტეტის_დონე 
@@ -153,25 +189,38 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 16. TEST CASES
--- Test for calculate_shipping_cost
-SELECT calculate_shipping_cost(1002, 1102, 5.5, 'overnight');
+-- Test
+SELECT assign_optimal_route(5007, 'high');
+
+
+-- update_shipment_status() 
+
+○ შეყვანა: ტრეკინგ_ნომერი, ახალი_სტატუსი, ლოკაცია 
+○ მოიცავს ავტომატურ დროის ბეჭდვას და მომხმარებლის შეტყობინებებს 
+
+CREATE OR REPLACE FUNCTION update_shipment_status(
+    p_shipment_id INT,
+    p_new_status status_enum,
+    p_location INT
+)
+RETURNS TEXT AS $$
+BEGIN
+    UPDATE shipments
+    SET shipment_status = p_new_status,
+        actual_delivery_date = CASE
+            WHEN p_new_status = 'delivered' THEN CURRENT_DATE
+            ELSE actual_delivery_date
+        END
+    WHERE shipment_id = p_shipment_id;
+
+    RETURN 'Status updated for shipment ' || p_shipment_id || ' to ' || p_new_status || ' at location ' || p_location;
+END;
+$$ LANGUAGE plpgsql;
+
 
 -- Test for update_shipment_status
 SELECT update_shipment_status(5001, 'in_transit', 1101);
 
--- Test for generate_delivery_manifest
-SELECT DISTINCT r.route_id, s.expected_delivery_date
-FROM shipments s
-JOIN routes r
-  ON s.origin_warehouse_id = r.origin_address_id
- AND s.destination_address_id = r.destination_address_id
-WHERE s.expected_delivery_date IS NOT NULL
-ORDER BY s.expected_delivery_date
-LIMIT 10;
+--
 
 
-
-select * from routes;
--- Test for assign_optimal_route
-SELECT assign_optimal_route(5001, 'high');
