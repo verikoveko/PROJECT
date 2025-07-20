@@ -615,7 +615,7 @@ SELECT assign_optimal_route(1205, 'express');
 --------
 SELECT * FROM drivers WHERE priority_level = 'high';
 ----
-SELECT d.driver_id, d.driver_name, v.capacity,priority_level
+SELECT d.driver_id, d.driver_name, v.capacity,d.priority_level
 FROM drivers d
 JOIN vehicles v ON v.vehicle_id = d.vehicle_id
 WHERE d.priority_level = 'high'
